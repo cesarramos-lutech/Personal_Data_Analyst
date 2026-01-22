@@ -162,3 +162,77 @@ Analyst: [Loads data and creates visualization]
 - Dangerous keywords (DELETE, DROP, INSERT, etc.) are blocked
 - Query results are limited to 10,000 rows by default
 - 10 GB query billing limit per query
+
+## Deployment Options
+
+### 1. CLI Mode (Simplest)
+```
+┌─────────────────────────────────────┐
+│           Your Laptop               │
+│  ┌───────────┐    ┌──────────────┐  │
+│  │ Terminal  │───▶│ Python Agent │──┼──▶ BigQuery API
+│  │ (stdin)   │◀───│   (ADK)      │  │
+│  └───────────┘    └──────────────┘  │
+└─────────────────────────────────────┘
+```
+Run `python main.py` - pure text interface in your terminal.
+
+### 2. ADK Web UI
+```
+┌─────────────────────────────────────────┐
+│              Your Laptop                │
+│  ┌─────────┐    ┌────────────────────┐  │
+│  │ Browser │───▶│ ADK Dev Server     │──┼──▶ BigQuery API
+│  │localhost│◀───│ (FastAPI + Agent)  │  │
+│  └─────────┘    └────────────────────┘  │
+└─────────────────────────────────────────┘
+```
+Run `adk web` - browser-based chat UI at `localhost:8000`.
+
+### 3. ADK API Server
+```
+┌────────────────────────────────────────────┐
+│               Your Laptop                  │
+│  ┌──────────────┐    ┌─────────────────┐   │
+│  │ Any App      │───▶│ REST API Server │───┼──▶ BigQuery API
+│  │ (curl, app)  │◀───│ (FastAPI)       │   │
+│  └──────────────┘    └─────────────────┘   │
+└────────────────────────────────────────────┘
+```
+Run `adk api_server` - REST endpoints for integration with other apps.
+
+### 4. Cloud Run
+```
+┌───────────┐       ┌─────────────────────────────────┐
+│ Browser / │       │         Google Cloud            │
+│ Any Client│──────▶│  ┌─────────────────────────┐    │
+│           │◀──────│  │  Cloud Run Container    │────┼──▶ BigQuery
+└───────────┘       │  │  (Docker + FastAPI)     │    │
+                    │  └─────────────────────────┘    │
+                    └─────────────────────────────────┘
+```
+Containerized deployment. Serverless, scales to zero.
+
+### 5. Vertex AI Agent Engine
+```
+┌───────────┐       ┌──────────────────────────────────────────┐
+│ Browser / │       │              Google Cloud                │
+│ Any Client│──────▶│  ┌────────────────────────────────────┐  │
+│           │◀──────│  │  Vertex AI Agent Engine (Managed)  │──┼──▶ BigQuery
+└───────────┘       │  │  • Auto-scaling                    │  │
+                    │  │  • Logging & Monitoring            │  │
+                    │  │  • Session Management              │  │
+                    │  └────────────────────────────────────┘  │
+                    └──────────────────────────────────────────┘
+```
+Fully managed deployment. Google handles scaling, logging, monitoring.
+
+### Deployment Comparison
+
+| Option | Runs On | You Manage | Best For |
+|--------|---------|------------|----------|
+| CLI | Laptop | Everything | Personal use |
+| Web UI | Laptop | Everything | Dev/testing |
+| API Server | Laptop | Everything | Local integrations |
+| Cloud Run | GCP | Container, scaling | Team/production |
+| Vertex AI | GCP | Just code | Enterprise |
