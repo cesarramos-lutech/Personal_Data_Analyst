@@ -1,0 +1,27 @@
+[project]
+name = "personal-data-analyst"
+version = "0.2.0"
+description = "A personal data analyst agent using Google ADK with BigQuery support"
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk>=1.0.0",
+    "python-dotenv>=1.0.1",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "openpyxl>=3.1.0",  # For Excel support
+    "google-cloud-bigquery>=3.0.0",
+    "google-cloud-aiplatform>=1.50.0",
+    "db-dtypes>=1.2.0",  # BigQuery data types for pandas
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
