@@ -16,6 +16,143 @@ The agent (powered by Gemini) decides which tools to call, executes them, and ex
 
 ---
 
+## Why Google ADK
+
+### The Problem with Building AI Agents
+
+Building production-ready AI agents is harder than it looks. You need:
+- Tool orchestration (calling functions based on LLM decisions)
+- Session/state management (remembering context across turns)
+- Streaming responses (not waiting for full completion)
+- Deployment infrastructure (scaling, monitoring, auth)
+- Model abstraction (swapping models without rewriting code)
+
+Most teams cobble this together with LangChain, custom code, and duct tape. It works for demos but becomes painful at scale.
+
+### What Google ADK Provides
+
+**Google Agent Development Kit (ADK)** is Google's framework for building AI agents. It's designed to go from prototype to production on Google Cloud with minimal friction.
+
+#### ADK Core Components
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Google ADK Architecture                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────────────────┐ │
+│  │    Agent     │────▶│    Runner    │────▶│    SessionService        │ │
+│  │              │     │              │     │                          │ │
+│  │ • name       │     │ • Executes   │     │ • InMemorySessionService │ │
+│  │ • model      │     │   agent loop │     │ • DatabaseSessionService │ │
+│  │ • instruction│     │ • Handles    │     │ • VertexSessionService   │ │
+│  │ • tools[]    │     │   tool calls │     │                          │ │
+│  └──────────────┘     └──────────────┘     └──────────────────────────┘ │
+│         │                                                                │
+│         │ tools                                                          │
+│         ▼                                                                │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                         Tool Functions                            │   │
+│  │                                                                   │   │
+│  │  def my_tool(param: str, ctx: ToolContext) -> dict:              │   │
+│  │      ctx.state["key"] = value  # Persist across calls            │   │
+│  │      return {"status": "success", "data": ...}                   │   │
+│  │                                                                   │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│         │                                                                │
+│         │ ctx.state                                                      │
+│         ▼                                                                │
+│  ┌──────────────┐                                                        │
+│  │ ToolContext  │  Shared state across all tool calls in a session      │
+│  │   .state     │  Enables tool chaining: load → query → analyze        │
+│  └──────────────┘                                                        │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+| Component | Purpose | In This Project |
+|-----------|---------|-----------------|
+| **Agent** | Defines the AI persona, model, and available tools | `data_analyst/agent.py` |
+| **Runner** | Executes the agent loop, handles tool calls | `main.py` (lines 44-48) |
+| **SessionService** | Manages conversation state persistence | `InMemorySessionService` for local |
+| **ToolContext** | Passes state between tools within a session | Used in every tool function |
+| **Tools** | Python functions the agent can call | `tools.py`, `bigquery_tools.py` |
+
+#### Why ADK Over Alternatives
+
+| Requirement | LangChain | Custom Code | Google ADK |
+|-------------|-----------|-------------|------------|
+| **Tool Definition** | Complex chains, callbacks | Manual parsing | Just Python functions + docstrings |
+| **State Management** | Manual memory classes | Build from scratch | Built-in `ToolContext.state` |
+| **Session Persistence** | External integration | Build from scratch | Pluggable `SessionService` |
+| **Streaming** | Callback handlers | Complex async code | Native support |
+| **GCP Integration** | Third-party connectors | Manual setup | Native (BigQuery, Vertex, Cloud Run) |
+| **Production Deployment** | DIY infrastructure | DIY infrastructure | One-click to Vertex AI Agent Engine |
+| **Model Switching** | Code changes | Code changes | Change env variable |
+
+#### The GCP Advantage
+
+ADK is built for the Google Cloud ecosystem:
+
+```
+                        Development                    Production
+                        ───────────                    ──────────
+
+Local Development       Cloud Run                      Vertex AI Agent Engine
+┌─────────────────┐     ┌─────────────────┐           ┌─────────────────────┐
+│ python main.py  │ ──▶ │ Containerized   │ ──▶       │ Fully Managed       │
+│ adk web         │     │ Auto-scaling    │           │ Enterprise-grade    │
+│ adk api_server  │     │ Load balanced   │           │ Built-in monitoring │
+└─────────────────┘     └─────────────────┘           └─────────────────────┘
+        │                       │                              │
+        └───────────────────────┴──────────────────────────────┘
+                                │
+                    Same code, different deployment targets
+```
+
+- **BigQuery**: Native client, no translation layer
+- **Vertex AI**: Direct model access, fine-tuned models
+- **Cloud Run**: Stateless deployment with auto-scaling
+- **IAM**: Enterprise auth and permissions
+- **Cloud Logging**: Built-in observability
+
+#### ADK in Action (This Project)
+
+**Agent definition is declarative:**
+```python
+data_analyst_agent = Agent(
+    name="personal_data_analyst",
+    model="gemini-2.0-flash",           # Swap models via env var
+    instruction=get_analyst_instructions(),
+    tools=[load_data, run_analysis, ...] # Just list the functions
+)
+```
+
+**Tools are just functions:**
+```python
+def load_data(filename: str, ctx: ToolContext) -> dict[str, Any]:
+    """Load a CSV or Excel file."""  # Docstring becomes tool description
+    df = pd.read_csv(filename)
+    ctx.state["current_dataset"] = df   # Share with other tools
+    return {"status": "success", "rows": len(df)}
+```
+
+**Running is one line:**
+```python
+response = runner.run(user_id="user", session_id="session", new_message="Analyze my data")
+```
+
+ADK handles:
+- Sending the message to the LLM
+- Parsing tool calls from the response
+- Executing tools with proper context
+- Feeding results back to the LLM
+- Streaming the final response
+
+**Bottom line:** ADK lets you focus on *what* your agent does, not *how* to wire it together.
+
+---
+
 ## The 30-Second Architecture
 
 ```
@@ -482,6 +619,58 @@ You: Take those query results and create a visualization
 | `preview_table(dataset_id, table_id, limit)` | Sample rows | dataset_id, table_id, limit (max 100) |
 | `run_bigquery_sql(sql)` | Execute SELECT query | sql string |
 | `run_analysis(code)` | Run Python code | Python code string |
+
+---
+
+## Potential Enhancements
+
+### Near-Term (Low Effort, High Value)
+
+| Enhancement | Description | Implementation |
+|-------------|-------------|----------------|
+| **Multi-file analysis** | Compare/join multiple CSVs in a single query | Extend `run_analysis()` to accept multiple dataset names |
+| **Export results** | Save analysis results to CSV/Excel | Add `export_results(filename, format)` tool |
+| **Query history** | Show recent queries and re-run them | Store in `ctx.state["query_history"]`, add `show_history()` tool |
+| **Natural language to SQL** | Let agent explain generated SQL before running | Add `explain_sql(sql)` tool that describes query intent |
+
+### Medium-Term (Enterprise Features)
+
+| Enhancement | Description | Implementation |
+|-------------|-------------|----------------|
+| **Database session persistence** | Survive restarts, share sessions across instances | Replace `InMemorySessionService` with `DatabaseSessionService` (Firestore, Cloud SQL) |
+| **Multi-user support** | Isolated sessions per user with auth | Integrate with Firebase Auth or Cloud Identity |
+| **Scheduled reports** | Automated recurring analyses | Cloud Scheduler + Cloud Functions trigger |
+| **Data catalog integration** | Auto-discover datasets from Data Catalog | Add `search_data_catalog(query)` tool |
+| **Audit logging** | Track all queries and who ran them | Emit structured logs to Cloud Logging |
+
+### Long-Term (Advanced Capabilities)
+
+| Enhancement | Description | Implementation |
+|-------------|-------------|----------------|
+| **Multi-agent orchestration** | Specialized agents (SQL expert, viz expert, stats expert) | ADK supports agent-to-agent delegation |
+| **Streaming SQL results** | Handle billion-row queries | Use BigQuery Storage Read API with pagination |
+| **ML model integration** | Run predictions on data | Add Vertex AI AutoML or custom model tools |
+| **Real-time data** | Connect to Pub/Sub streams | Add streaming data source tools |
+| **Voice interface** | Talk to your data | Integrate Speech-to-Text + Text-to-Speech |
+
+### Infrastructure Improvements
+
+| Enhancement | Description | Benefit |
+|-------------|-------------|---------|
+| **Cloud Run deployment** | Containerized, auto-scaling API | Handle multiple concurrent users |
+| **Vertex AI Agent Engine** | Fully managed agent hosting | Zero-ops, enterprise SLAs |
+| **VPC Service Controls** | Network isolation for sensitive data | Compliance (HIPAA, SOC2) |
+| **Customer-managed encryption** | CMEK for data at rest | Enterprise security requirements |
+
+### Code Quality
+
+| Enhancement | Description |
+|-------------|-------------|
+| **Proper sandboxing** | Use subprocess with seccomp or gVisor for code execution |
+| **Input validation** | Pydantic models for tool parameters |
+| **Unit tests** | pytest suite for all tools |
+| **Integration tests** | End-to-end tests with mock BigQuery |
+| **Type checking** | mypy strict mode |
 
 ---
 
