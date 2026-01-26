@@ -24,7 +24,7 @@ def _get_bq_client() -> bigquery.Client:
     return _bq_client
 
 
-def list_bigquery_datasets(ctx: ToolContext) -> dict[str, Any]:
+def list_bigquery_datasets(tool_context: ToolContext) -> dict[str, Any]:
     """
     List all available BigQuery datasets in the configured project.
 
@@ -49,7 +49,7 @@ def list_bigquery_datasets(ctx: ToolContext) -> dict[str, Any]:
                 "location": dataset_ref.location,
             })
 
-        ctx.state["available_datasets"] = [d["dataset_id"] for d in dataset_list]
+        tool_context.state["available_datasets"] = [d["dataset_id"] for d in dataset_list]
 
         return {
             "status": "success",
@@ -61,7 +61,7 @@ def list_bigquery_datasets(ctx: ToolContext) -> dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
-def list_bigquery_tables(dataset_id: str, ctx: ToolContext) -> dict[str, Any]:
+def list_bigquery_tables(dataset_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """
     List all tables in a BigQuery dataset.
 
@@ -94,8 +94,8 @@ def list_bigquery_tables(dataset_id: str, ctx: ToolContext) -> dict[str, Any]:
                 "description": table_info.description or "",
             })
 
-        ctx.state["current_dataset"] = dataset_id
-        ctx.state["available_tables"] = [t["table_id"] for t in table_list]
+        tool_context.state["current_dataset"] = dataset_id
+        tool_context.state["available_tables"] = [t["table_id"] for t in table_list]
 
         return {
             "status": "success",
@@ -107,7 +107,7 @@ def list_bigquery_tables(dataset_id: str, ctx: ToolContext) -> dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
-def get_table_schema(dataset_id: str, table_id: str, ctx: ToolContext) -> dict[str, Any]:
+def get_table_schema(dataset_id: str, table_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """
     Get the schema of a BigQuery table.
 
@@ -141,8 +141,8 @@ def get_table_schema(dataset_id: str, table_id: str, ctx: ToolContext) -> dict[s
 
         # Store schema in context for SQL generation
         schema_key = f"schema_{dataset_id}_{table_id}"
-        ctx.state[schema_key] = columns
-        ctx.state["current_table_schema"] = {
+        tool_context.state[schema_key] = columns
+        tool_context.state["current_table_schema"] = {
             "dataset": dataset_id,
             "table": table_id,
             "columns": columns
@@ -160,7 +160,7 @@ def get_table_schema(dataset_id: str, table_id: str, ctx: ToolContext) -> dict[s
         return {"status": "error", "message": str(e)}
 
 
-def run_bigquery_sql(sql: str, ctx: ToolContext) -> dict[str, Any]:
+def run_bigquery_sql(sql: str, tool_context: ToolContext) -> dict[str, Any]:
     """
     Execute a SQL query against BigQuery and return results.
 
@@ -217,9 +217,9 @@ def run_bigquery_sql(sql: str, ctx: ToolContext) -> dict[str, Any]:
             truncated = False
 
         # Store in context for further analysis
-        ctx.state["last_query"] = sql
-        ctx.state["last_query_result"] = df
-        ctx.state["bigquery_query_result"] = df  # Compatible with analytics tools
+        tool_context.state["last_query"] = sql
+        tool_context.state["last_query_result"] = df
+        tool_context.state["bigquery_query_result"] = df  # Compatible with analytics tools
 
         # Get bytes processed
         bytes_processed = query_job.total_bytes_processed or 0
@@ -243,7 +243,7 @@ def run_bigquery_sql(sql: str, ctx: ToolContext) -> dict[str, Any]:
         }
 
 
-def preview_table(dataset_id: str, table_id: str, limit: int, ctx: ToolContext) -> dict[str, Any]:
+def preview_table(dataset_id: str, table_id: str, tool_context: ToolContext, limit: int = 10) -> dict[str, Any]:
     """
     Preview rows from a BigQuery table.
 
@@ -260,4 +260,4 @@ def preview_table(dataset_id: str, table_id: str, limit: int, ctx: ToolContext) 
     limit = min(limit, 100)
 
     sql = f"SELECT * FROM `{PROJECT_ID}.{dataset_id}.{table_id}` LIMIT {limit}"
-    return run_bigquery_sql(sql, ctx)
+    return run_bigquery_sql(sql, tool_context)

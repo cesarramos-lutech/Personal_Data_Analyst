@@ -20,7 +20,7 @@ from google.adk.tools import ToolContext
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data")).resolve()
 
 
-def list_available_data(ctx: ToolContext) -> dict[str, Any]:
+def list_available_data(tool_context: ToolContext) -> dict[str, Any]:
     """
     List all available data files in the data directory.
 
@@ -44,7 +44,8 @@ def list_available_data(ctx: ToolContext) -> dict[str, Any]:
             })
 
     # Store in context for later use
-    ctx.state["available_files"] = [f["filename"] for f in files]
+    if tool_context:
+        tool_context.state["available_files"] = [f["filename"] for f in files]
 
     return {
         "status": "success",
@@ -54,7 +55,7 @@ def list_available_data(ctx: ToolContext) -> dict[str, Any]:
     }
 
 
-def load_data(filename: str, ctx: ToolContext) -> dict[str, Any]:
+def load_data(filename: str, tool_context: ToolContext) -> dict[str, Any]:
     """
     Load a data file (CSV or Excel) into memory for analysis.
 
@@ -88,9 +89,9 @@ def load_data(filename: str, ctx: ToolContext) -> dict[str, Any]:
 
         # Store in context state
         dataset_key = f"dataset_{filename.replace('.', '_')}"
-        ctx.state[dataset_key] = df
-        ctx.state["current_dataset"] = df
-        ctx.state["current_dataset_name"] = filename
+        tool_context.state[dataset_key] = df
+        tool_context.state["current_dataset"] = df
+        tool_context.state["current_dataset_name"] = filename
 
         # Generate summary statistics
         summary = {
@@ -117,7 +118,7 @@ def load_data(filename: str, ctx: ToolContext) -> dict[str, Any]:
         }
 
 
-def run_analysis(code: str, ctx: ToolContext) -> dict[str, Any]:
+def run_analysis(code: str, tool_context: ToolContext) -> dict[str, Any]:
     """
     Execute Python code for data analysis.
 
@@ -143,21 +144,21 @@ def run_analysis(code: str, ctx: ToolContext) -> dict[str, Any]:
     }
 
     # Add loaded datasets (from local files)
-    if "current_dataset" in ctx.state:
-        local_vars["df"] = ctx.state["current_dataset"]
+    if "current_dataset" in tool_context.state:
+        local_vars["df"] = tool_context.state["current_dataset"]
 
     # Add BigQuery query results if available
-    if "bigquery_query_result" in ctx.state:
-        local_vars["bq_result"] = ctx.state["bigquery_query_result"]
+    if "bigquery_query_result" in tool_context.state:
+        local_vars["bq_result"] = tool_context.state["bigquery_query_result"]
         # Also make it available as df if no local dataset is loaded
         if "df" not in local_vars:
-            local_vars["df"] = ctx.state["bigquery_query_result"]
+            local_vars["df"] = tool_context.state["bigquery_query_result"]
 
-    if "last_query_result" in ctx.state:
-        local_vars["query_result"] = ctx.state["last_query_result"]
+    if "last_query_result" in tool_context.state:
+        local_vars["query_result"] = tool_context.state["last_query_result"]
 
     # Add any other loaded datasets
-    for key, value in ctx.state.items():
+    for key, value in tool_context.state.items():
         if key.startswith("dataset_") and isinstance(value, pd.DataFrame):
             # Make available as clean variable name
             var_name = key.replace("dataset_", "").replace("_csv", "").replace("_xlsx", "")
@@ -204,20 +205,20 @@ def run_analysis(code: str, ctx: ToolContext) -> dict[str, Any]:
     return result
 
 
-def get_data_info(ctx: ToolContext) -> dict[str, Any]:
+def get_data_info(tool_context: ToolContext) -> dict[str, Any]:
     """
     Get detailed information about the currently loaded dataset.
 
     Returns comprehensive statistics and data quality information.
     """
-    if "current_dataset" not in ctx.state:
+    if "current_dataset" not in tool_context.state:
         return {
             "status": "error",
             "message": "No dataset loaded. Use load_data(filename) first."
         }
 
-    df = ctx.state["current_dataset"]
-    name = ctx.state.get("current_dataset_name", "unknown")
+    df = tool_context.state["current_dataset"]
+    name = tool_context.state.get("current_dataset_name", "unknown")
 
     info = {
         "status": "success",
