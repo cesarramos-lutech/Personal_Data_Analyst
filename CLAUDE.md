@@ -27,8 +27,9 @@ adk api_server               # REST API
 ## Environment Setup
 
 Copy `.env.example` to `.env` and configure:
-- `GOOGLE_CLOUD_PROJECT` - Required GCP project ID
-- `GOOGLE_CLOUD_LOCATION` - Region (default: us-central1)
+- `GOOGLE_API_KEY` - Required Gemini API key (get from https://aistudio.google.com/apikey)
+- `GOOGLE_CLOUD_PROJECT` - Required GCP project ID (for BigQuery)
+- `GOOGLE_CLOUD_LOCATION` - Region (must match your BigQuery dataset location)
 - `ANALYST_MODEL` - LLM model (default: gemini-2.0-flash)
 - `BIGQUERY_DATASET` - Optional default dataset
 - `BIGQUERY_MAX_RESULTS` - Query row limit (default: 10000)
@@ -56,7 +57,8 @@ State is managed via ADK's `ToolContext`, allowing tools to share loaded dataset
 - **SQL safety**: Only SELECT/WITH queries allowed; dangerous keywords blocked; 10GB billing limit
 - **Code execution**: `run_analysis()` uses sandboxed `exec()` with pandas, numpy, matplotlib, seaborn pre-loaded
 - **Auto-save visualizations**: Matplotlib figures saved to `./data/` with sequential naming
-- **Context parameter**: Always last in tool function signatures
+- **ToolContext parameter**: Must be named `tool_context: ToolContext` without default value (no `= None`) for ADK automatic function calling to work
+- **State serialization**: DataFrames stored as records (`df.to_dict(orient="records")`) in state, converted back to DataFrame when needed
 
 ## Adding New Capabilities
 
@@ -78,3 +80,5 @@ State is managed via ADK's `ToolContext`, allowing tools to share loaded dataset
 - [2025-01-22] SQL queries restricted to SELECT/WITH with dangerous keyword blocking for security
 - [2025-01-22] Using ToolContext for state management to enable tool chaining (load data → analyze → visualize)
 - [2025-01-22] Lazy-loaded singleton BigQuery client to avoid unnecessary connections
+- [2025-01-26] ToolContext parameters must not have default values (`= None`) - ADK's automatic function calling fails to parse them otherwise
+- [2025-01-26] DataFrames stored as records (list of dicts) in ToolContext.state to enable JSON serialization by ADK
