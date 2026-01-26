@@ -216,10 +216,11 @@ def run_bigquery_sql(sql: str, tool_context: ToolContext) -> dict[str, Any]:
         else:
             truncated = False
 
-        # Store in context for further analysis
+        # Store in context for further analysis (as records for JSON serialization)
         tool_context.state["last_query"] = sql
-        tool_context.state["last_query_result"] = df
-        tool_context.state["bigquery_query_result"] = df  # Compatible with analytics tools
+        tool_context.state["last_query_result"] = df.to_dict(orient="records")
+        tool_context.state["last_query_columns"] = list(df.columns)
+        tool_context.state["bigquery_query_result"] = df.to_dict(orient="records")
 
         # Get bytes processed
         bytes_processed = query_job.total_bytes_processed or 0

@@ -87,10 +87,11 @@ def load_data(filename: str, tool_context: ToolContext) -> dict[str, Any]:
                 "message": f"Unsupported file type: {filepath.suffix}"
             }
 
-        # Store in context state
+        # Store in context state (as records for JSON serialization)
         dataset_key = f"dataset_{filename.replace('.', '_')}"
-        tool_context.state[dataset_key] = df
-        tool_context.state["current_dataset"] = df
+        tool_context.state[dataset_key] = df.to_dict(orient="records")
+        tool_context.state["current_dataset"] = df.to_dict(orient="records")
+        tool_context.state["current_dataset_columns"] = list(df.columns)
         tool_context.state["current_dataset_name"] = filename
 
         # Generate summary statistics
@@ -143,26 +144,27 @@ def run_analysis(code: str, tool_context: ToolContext) -> dict[str, Any]:
         "DATA_DIR": DATA_DIR,
     }
 
-    # Add loaded datasets (from local files)
+    # Add loaded datasets (from local files, convert from records to DataFrame)
     if "current_dataset" in tool_context.state:
-        local_vars["df"] = tool_context.state["current_dataset"]
+        local_vars["df"] = pd.DataFrame(tool_context.state["current_dataset"])
 
-    # Add BigQuery query results if available
+    # Add BigQuery query results if available (convert from records to DataFrame)
     if "bigquery_query_result" in tool_context.state:
-        local_vars["bq_result"] = tool_context.state["bigquery_query_result"]
+        bq_df = pd.DataFrame(tool_context.state["bigquery_query_result"])
+        local_vars["bq_result"] = bq_df
         # Also make it available as df if no local dataset is loaded
         if "df" not in local_vars:
-            local_vars["df"] = tool_context.state["bigquery_query_result"]
+            local_vars["df"] = bq_df
 
     if "last_query_result" in tool_context.state:
-        local_vars["query_result"] = tool_context.state["last_query_result"]
+        local_vars["query_result"] = pd.DataFrame(tool_context.state["last_query_result"])
 
-    # Add any other loaded datasets
+    # Add any other loaded datasets (convert from records to DataFrame)
     for key, value in tool_context.state.items():
-        if key.startswith("dataset_") and isinstance(value, pd.DataFrame):
+        if key.startswith("dataset_") and isinstance(value, list):
             # Make available as clean variable name
             var_name = key.replace("dataset_", "").replace("_csv", "").replace("_xlsx", "")
-            local_vars[var_name] = value
+            local_vars[var_name] = pd.DataFrame(value)
 
     # Capture stdout
     old_stdout = sys.stdout
@@ -217,7 +219,8 @@ def get_data_info(tool_context: ToolContext) -> dict[str, Any]:
             "message": "No dataset loaded. Use load_data(filename) first."
         }
 
-    df = tool_context.state["current_dataset"]
+    # Convert from records back to DataFrame
+    df = pd.DataFrame(tool_context.state["current_dataset"])
     name = tool_context.state.get("current_dataset_name", "unknown")
 
     info = {
