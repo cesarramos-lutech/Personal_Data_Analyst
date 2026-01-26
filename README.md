@@ -53,10 +53,11 @@ pip install -e .
 cp .env.example .env
 ```
 
-Edit `.env` with your Google Cloud settings:
+Edit `.env` with your settings:
 ```
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_API_KEY=your-gemini-api-key        # Required - get from https://aistudio.google.com/apikey
+GOOGLE_CLOUD_PROJECT=your-project-id      # Required for BigQuery
+GOOGLE_CLOUD_LOCATION=europe-west1        # Must match your BigQuery dataset location
 ANALYST_MODEL=gemini-2.0-flash
 ```
 
