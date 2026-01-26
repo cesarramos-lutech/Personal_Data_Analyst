@@ -54,10 +54,12 @@ Most teams cobble this together with LangChain, custom code, and duct tape. It w
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                         Tool Functions                            │   │
 │  │                                                                   │   │
-│  │  def my_tool(param: str, ctx: ToolContext) -> dict:              │   │
-│  │      ctx.state["key"] = value  # Persist across calls            │   │
+│  │  def my_tool(param: str, tool_context: ToolContext) -> dict:     │   │
+│  │      tool_context.state["key"] = value  # Persist across calls   │   │
 │  │      return {"status": "success", "data": ...}                   │   │
 │  │                                                                   │   │
+│  │  NOTE: ToolContext param must NOT have default value (no =None)  │   │
+│  │        DataFrames must be stored as records for serialization    │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │         │                                                                │
 │         │ ctx.state                                                      │
@@ -130,12 +132,14 @@ data_analyst_agent = Agent(
 
 **Tools are just functions:**
 ```python
-def load_data(filename: str, ctx: ToolContext) -> dict[str, Any]:
+def load_data(filename: str, tool_context: ToolContext) -> dict[str, Any]:
     """Load a CSV or Excel file."""  # Docstring becomes tool description
     df = pd.read_csv(filename)
-    ctx.state["current_dataset"] = df   # Share with other tools
+    # Store as records (not DataFrame) for JSON serialization
+    tool_context.state["current_dataset"] = df.to_dict(orient="records")
     return {"status": "success", "rows": len(df)}
 ```
+**Important:** `tool_context` must NOT have `= None` default - ADK auto-injects it.
 
 **Running is one line:**
 ```python
@@ -264,36 +268,36 @@ data_analyst_agent = Agent(
 
 Four functions that handle CSV/Excel files:
 
-#### `list_available_data(ctx)` - Lines 23-54
+#### `list_available_data(tool_context)` - Lines 23-54
 
 ```python
-def list_available_data(ctx: ToolContext) -> dict[str, Any]:
+def list_available_data(tool_context: ToolContext) -> dict[str, Any]:
 ```
 
 - Scans `DATA_DIR` for `.csv`, `.xlsx`, `.xls` files
 - Returns list with filename, type, size
-- **Stores file list in `ctx.state["available_files"]`** for later use
+- **Stores file list in `tool_context.state["available_files"]`** for later use
 
-#### `load_data(filename, ctx)` - Lines 57-117
+#### `load_data(filename, tool_context)` - Lines 57-117
 
 ```python
-def load_data(filename: str, ctx: ToolContext) -> dict[str, Any]:
+def load_data(filename: str, tool_context: ToolContext) -> dict[str, Any]:
 ```
 
 - Reads file into pandas DataFrame
-- **Stores DataFrame in context state** - this is crucial:
+- **Stores data as records in context state** (for JSON serialization):
   ```python
-  ctx.state["current_dataset"] = df
-  ctx.state["current_dataset_name"] = filename
+  tool_context.state["current_dataset"] = df.to_dict(orient="records")
+  tool_context.state["current_dataset_name"] = filename
   ```
 - Returns preview + column types + missing value counts
 
-#### `run_analysis(code, ctx)` - Lines 120-204
+#### `run_analysis(code, tool_context)` - Lines 120-204
 
 **This is the most powerful tool.** It executes arbitrary Python code.
 
 ```python
-def run_analysis(code: str, ctx: ToolContext) -> dict[str, Any]:
+def run_analysis(code: str, tool_context: ToolContext) -> dict[str, Any]:
 ```
 
 **Execution environment setup (lines 137-164):**
@@ -306,12 +310,12 @@ local_vars = {
     "DATA_DIR": DATA_DIR,
 }
 
-# Inject loaded data
-if "current_dataset" in ctx.state:
-    local_vars["df"] = ctx.state["current_dataset"]
+# Inject loaded data (convert records back to DataFrame)
+if "current_dataset" in tool_context.state:
+    local_vars["df"] = pd.DataFrame(tool_context.state["current_dataset"])
 
-if "bigquery_query_result" in ctx.state:
-    local_vars["bq_result"] = ctx.state["bigquery_query_result"]
+if "bigquery_query_result" in tool_context.state:
+    local_vars["bq_result"] = pd.DataFrame(tool_context.state["bigquery_query_result"])
 ```
 
 **Code execution (line 176):**
@@ -330,9 +334,9 @@ for i, num in enumerate(fig_nums):
 
 **Why exec()?** It lets the agent write and run Python code dynamically. The agent can generate analysis code based on user questions.
 
-#### `get_data_info(ctx)` - Lines 207-254
+#### `get_data_info(tool_context)` - Lines 207-254
 
-Returns detailed column statistics: dtype, null counts, min/max/mean for numeric columns, sample values for text.
+Returns detailed column statistics: dtype, null counts, min/max/mean for numeric columns, sample values for text. Converts records back to DataFrame internally for analysis.
 
 ---
 
@@ -354,7 +358,7 @@ def _get_bq_client() -> bigquery.Client:
 
 **Why lazy?** Don't create connection until needed. Avoids errors if BigQuery isn't configured but user only uses local files.
 
-#### `run_bigquery_sql(sql, ctx)` - Lines 163-243
+#### `run_bigquery_sql(sql, tool_context)` - Lines 163-243
 
 **The main query executor.** Key safety features:
 
@@ -380,9 +384,10 @@ job_config = bigquery.QueryJobConfig(
 
 **Results stored for chaining (lines 220-222):**
 ```python
-ctx.state["last_query"] = sql
-ctx.state["last_query_result"] = df
-ctx.state["bigquery_query_result"] = df  # Used by run_analysis()
+# Store as records for JSON serialization
+tool_context.state["last_query"] = sql
+tool_context.state["last_query_result"] = df.to_dict(orient="records")
+tool_context.state["bigquery_query_result"] = df.to_dict(orient="records")
 ```
 
 ---
@@ -470,18 +475,20 @@ The `get_analyst_instructions()` function returns the system prompt that shapes 
 
 ## The ToolContext State Machine
 
-`ctx.state` is a dictionary that persists across tool calls within a session. It's how tools share data:
+`tool_context.state` is a dictionary that persists across tool calls within a session. It's how tools share data:
 
-| Key | Set By | Used By |
-|-----|--------|---------|
-| `available_files` | `list_available_data()` | Agent (for decision making) |
-| `current_dataset` | `load_data()` | `run_analysis()`, `get_data_info()` |
-| `current_dataset_name` | `load_data()` | `get_data_info()` |
-| `bigquery_query_result` | `run_bigquery_sql()` | `run_analysis()` |
-| `last_query` | `run_bigquery_sql()` | Agent (context) |
-| `current_table_schema` | `get_table_schema()` | Agent (for SQL generation) |
+| Key | Set By | Used By | Format |
+|-----|--------|---------|--------|
+| `available_files` | `list_available_data()` | Agent (for decision making) | List of strings |
+| `current_dataset` | `load_data()` | `run_analysis()`, `get_data_info()` | **Records** (list of dicts) |
+| `current_dataset_name` | `load_data()` | `get_data_info()` | String |
+| `bigquery_query_result` | `run_bigquery_sql()` | `run_analysis()` | **Records** (list of dicts) |
+| `last_query` | `run_bigquery_sql()` | Agent (context) | String |
+| `current_table_schema` | `get_table_schema()` | Agent (for SQL generation) | Dict |
 
-**This enables chaining:** Load data → Analyze → Visualize, all using the same DataFrame.
+**Important:** DataFrames are stored as records (`df.to_dict(orient="records")`) for JSON serialization. Tools convert back to DataFrame when needed.
+
+**This enables chaining:** Load data → Analyze → Visualize, all using the same data.
 
 ---
 
@@ -558,9 +565,10 @@ Total conversation turn: typically 3-10s.
 
 1. Create new tools file (e.g., `postgres_tools.py`)
 2. Define functions following the same pattern:
-   - Accept `ctx: ToolContext` as last parameter
+   - Accept `tool_context: ToolContext` as parameter (NO default value!)
    - Return `dict[str, Any]` with status field
-   - Store results in `ctx.state` for chaining
+   - Store DataFrames as records: `df.to_dict(orient="records")`
+   - Store results in `tool_context.state` for chaining
 3. Import and add to `agent.py` tools list
 
 ---
@@ -678,6 +686,8 @@ You: Take those query results and create a visualization
 
 1. **Don't memorize code** - understand the patterns
 2. **The agent is the orchestrator** - tools are capabilities
-3. **ctx.state is the glue** - it connects tool outputs to inputs
+3. **tool_context.state is the glue** - it connects tool outputs to inputs
 4. **Prompts shape behavior** - change `prompts.py` to change the agent
 5. **Safety is layered** - SQL validation + billing limits + row limits
+6. **ToolContext has no default** - never use `tool_context: ToolContext = None`
+7. **DataFrames → records** - always serialize with `df.to_dict(orient="records")`
