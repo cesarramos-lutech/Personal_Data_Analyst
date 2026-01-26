@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules for Claude
+
+- **Always update this file** when making changes to code patterns, architecture, environment variables, or key decisions
+- Add new architectural decisions with date prefix `[YYYY-MM-DD]`
+- Keep documentation in sync with actual implementation
+
 ## Project Overview
 
 Personal Data Analyst is a conversational data analysis agent built with Google ADK (Agent Development Kit). It enables analysis of local CSV/Excel files and BigQuery data through natural language.
