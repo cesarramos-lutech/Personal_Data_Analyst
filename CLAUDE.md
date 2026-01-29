@@ -36,7 +36,9 @@ Copy `.env.example` to `.env` and configure:
 - `GOOGLE_API_KEY` - Required Gemini API key (get from https://aistudio.google.com/apikey)
 - `GOOGLE_CLOUD_PROJECT` - Required GCP project ID (for BigQuery)
 - `GOOGLE_CLOUD_LOCATION` - Region (must match your BigQuery dataset location)
-- `ANALYST_MODEL` - LLM model (default: gemini-2.0-flash)
+- `ANALYST_MODEL` - LLM model (default: gemini-2.5-flash)
+- `ENABLE_PLANNING` - Enable extended thinking (default: true)
+- `THINKING_BUDGET` - Tokens for reasoning (default: 8192)
 - `BIGQUERY_DATASET` - Optional default dataset
 - `BIGQUERY_MAX_RESULTS` - Query row limit (default: 10000)
 - `DATA_DIR` - Local data directory (default: ./data)
@@ -88,3 +90,9 @@ State is managed via ADK's `ToolContext`, allowing tools to share loaded dataset
 - [2025-01-22] Lazy-loaded singleton BigQuery client to avoid unnecessary connections
 - [2025-01-26] ToolContext parameters must not have default values (`= None`) - ADK's automatic function calling fails to parse them otherwise
 - [2025-01-26] DataFrames stored as records (list of dicts) in ToolContext.state to enable JSON serialization by ADK
+- [2025-01-29] Upgraded default model from gemini-2.0-flash to gemini-2.5-flash for better reasoning
+- [2025-01-29] Added BuiltInPlanner with ThinkingConfig for complex multi-step analysis tasks
+- [2025-01-29] Fixed SQL keyword validation bug - now uses regex word boundaries to avoid false positives (e.g., "created_at" no longer triggers "CREATE" error)
+- [2025-01-29] Added callbacks (before_model, after_model, before_agent) for logging and observability
+- [2025-01-29] Restructured agent instructions with explicit decision flow and tool usage guidance
+- [2025-01-29] Enhanced tool docstrings to help LLM make better tool selection decisions

@@ -1,6 +1,7 @@
 """BigQuery tools for the Personal Data Analyst agent."""
 
 import os
+import re
 from typing import Any
 
 from google.cloud import bigquery
@@ -26,9 +27,18 @@ def _get_bq_client() -> bigquery.Client:
 
 def list_bigquery_datasets(tool_context: ToolContext) -> dict[str, Any]:
     """
-    List all available BigQuery datasets in the configured project.
+    List all available BigQuery datasets in the configured GCP project.
 
-    Returns a list of datasets with their IDs and descriptions.
+    USE THIS FIRST when the user wants to work with BigQuery data.
+    This is the starting point for BigQuery exploration - it shows all
+    available datasets before you can list tables or query data.
+
+    Returns:
+        dict with status, project ID, dataset count, and list of datasets
+        (each with dataset_id, description, and location)
+
+    Next steps after calling this:
+        - Use list_bigquery_tables(dataset_id) to see tables in a dataset
     """
     if not PROJECT_ID:
         return {
@@ -63,14 +73,21 @@ def list_bigquery_datasets(tool_context: ToolContext) -> dict[str, Any]:
 
 def list_bigquery_tables(dataset_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """
-    List all tables in a BigQuery dataset.
+    List all tables in a specific BigQuery dataset.
+
+    USE THIS after list_bigquery_datasets() to explore what tables are
+    available within a dataset. Shows table names, types, row counts, and sizes.
 
     Args:
-        dataset_id: The BigQuery dataset ID to list tables from
-        ctx: Tool context
+        dataset_id: The BigQuery dataset ID (e.g., "my_dataset")
 
     Returns:
-        List of tables with their names, types, and row counts.
+        dict with status, dataset name, table count, and list of tables
+        (each with table_id, type, num_rows, size_mb, description)
+
+    Next steps after calling this:
+        - Use get_table_schema(dataset_id, table_id) to see column details
+        - Use preview_table(dataset_id, table_id) to see sample data
     """
     if not PROJECT_ID:
         return {
@@ -109,15 +126,22 @@ def list_bigquery_tables(dataset_id: str, tool_context: ToolContext) -> dict[str
 
 def get_table_schema(dataset_id: str, table_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """
-    Get the schema of a BigQuery table.
+    Get the detailed schema of a BigQuery table - column names, types, and descriptions.
+
+    ALWAYS call this before writing SQL queries to understand the table structure.
+    This prevents errors from incorrect column names or types.
 
     Args:
-        dataset_id: The BigQuery dataset ID
-        table_id: The table ID to get schema for
-        ctx: Tool context
+        dataset_id: The BigQuery dataset ID (e.g., "my_dataset")
+        table_id: The table name (e.g., "customers")
 
     Returns:
-        Table schema with column names, types, and descriptions.
+        dict with status, table name, row count, and list of columns
+        (each with name, type, mode, description)
+
+    Next steps after calling this:
+        - Use run_bigquery_sql() to query the table with correct column names
+        - Use preview_table() if you want to see sample data first
     """
     if not PROJECT_ID:
         return {
@@ -162,14 +186,29 @@ def get_table_schema(dataset_id: str, table_id: str, tool_context: ToolContext) 
 
 def run_bigquery_sql(sql: str, tool_context: ToolContext) -> dict[str, Any]:
     """
-    Execute a SQL query against BigQuery and return results.
+    Execute a SELECT SQL query against BigQuery and return results.
+
+    IMPORTANT: Only SELECT and WITH (CTE) queries are allowed for safety.
+    Queries with DELETE, DROP, INSERT, UPDATE, etc. will be rejected.
+
+    ALWAYS call get_table_schema() first to know the correct column names!
 
     Args:
-        sql: The SQL query to execute (SELECT statements only for safety)
-        ctx: Tool context
+        sql: The SQL query (SELECT only). Use fully qualified table names:
+             `project.dataset.table` or just `dataset.table`
 
     Returns:
-        Query results as a list of dictionaries, plus metadata.
+        dict with status, row_count, columns, preview of results, and
+        bytes_processed_mb. Results are stored in state for run_analysis().
+
+    SQL Tips:
+        - Use LIMIT to control result size
+        - Use WHERE clauses to filter early
+        - CTEs (WITH clauses) are great for complex queries
+
+    Next steps after calling this:
+        - Use run_analysis(code) to do Python/pandas analysis on the results
+        - The data is available as 'df', 'bq_result', or 'query_result'
     """
     if not PROJECT_ID:
         return {
@@ -185,10 +224,13 @@ def run_bigquery_sql(sql: str, tool_context: ToolContext) -> dict[str, Any]:
             "message": "Only SELECT queries are allowed for safety. Use SELECT or WITH statements."
         }
 
-    # Block dangerous operations
+    # Block dangerous operations - use word boundaries to avoid false positives
+    # e.g., "created_at" should NOT match "CREATE", "updated_at" should NOT match "UPDATE"
     dangerous_keywords = ["DELETE", "DROP", "INSERT", "UPDATE", "TRUNCATE", "ALTER", "CREATE"]
     for keyword in dangerous_keywords:
-        if keyword in sql_upper:
+        # \b matches word boundaries, so "CREATE" won't match "created_at"
+        pattern = rf'\b{keyword}\b'
+        if re.search(pattern, sql_upper):
             return {
                 "status": "error",
                 "message": f"Query contains forbidden keyword: {keyword}. Only read operations allowed."
@@ -246,16 +288,22 @@ def run_bigquery_sql(sql: str, tool_context: ToolContext) -> dict[str, Any]:
 
 def preview_table(dataset_id: str, table_id: str, tool_context: ToolContext, limit: int = 10) -> dict[str, Any]:
     """
-    Preview rows from a BigQuery table.
+    Quick preview of sample rows from a BigQuery table.
+
+    Use this to understand what the data looks like before writing complex queries.
+    Faster than get_table_schema() + manual SELECT for initial exploration.
 
     Args:
-        dataset_id: The BigQuery dataset ID
-        table_id: The table ID to preview
-        limit: Number of rows to return (max 100)
-        ctx: Tool context
+        dataset_id: The BigQuery dataset ID (e.g., "my_dataset")
+        table_id: The table name (e.g., "customers")
+        limit: Number of rows to return (default 10, max 100)
 
     Returns:
-        Sample rows from the table.
+        Same as run_bigquery_sql() - sample rows with metadata
+
+    Next steps after calling this:
+        - Use run_bigquery_sql() for filtered/aggregated queries
+        - Use run_analysis() for Python analysis on the preview data
     """
     # Enforce reasonable limit
     limit = min(limit, 100)
